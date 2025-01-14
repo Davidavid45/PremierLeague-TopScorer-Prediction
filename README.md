@@ -42,7 +42,6 @@ We used multiple models to ensure robust predictions:
 - Feature engineering plays a crucial role in improving model accuracy.
 
 ## Repository Structure
-- `data/`: Sample datasets and instructions for preprocessing.
 - `scripts/`: Python and R scripts for data preparation and modeling.
 - `notebooks/`: Jupyter notebooks for Neural Network analysis.
 - `reports/`: Final report and presentation slides.
