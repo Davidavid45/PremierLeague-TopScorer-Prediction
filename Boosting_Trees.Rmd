@@ -1,0 +1,186 @@
+---
+title: "Boosting_Trees"
+author: "Oluwasegun Adegoke"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(gbm)
+library(caret)
+library(dplyr)
+library(tidyverse)
+library(janitor)
+library(caTools)
+library(knitr)
+library(tree)
+library(caret)
+library(Metrics)
+library(randomForest)
+```
+
+```{r}
+data <- read.csv('combined_file.csv')
+data <- data %>%
+  rename(goal_per_game = Goals_x, total_goals = Goals_y)
+data <- data[,-28]
+data <- clean_names(data)
+```
+
+```{r}
+names(data)
+df <- data[, 6:27]
+df <- subset(df, select = -c(mins,on_tar_shots))
+total_goals <- as.numeric(data$total_goals)
+```
+
+
+```{r}
+set.seed(11)
+split <- sample.split(df$total_goals, SplitRatio = 0.80)
+train = subset(df, split == TRUE)
+test = subset(data, split == FALSE)
+```
+
+```{r}
+rmse <- function(predictions, actual, player_names = NULL, logflag = FALSE, max_color = "red") {
+  has_player_names <- !is.null(player_names)
+  if (logflag) {
+    predictions <- exp(predictions)
+    actual <- exp(actual)
+  }
+  rmse_value <- sqrt(mean((predictions - actual)^2))
+  cat(paste("Root Mean Squared Error (RMSE): ", round(rmse_value, 2), "\n"))
+
+  op <- par(mar = c(5.1, 4.1, 6, 2))  # Increase top margin
+  plot(as.numeric(actual), as.numeric(predictions), main = "Actual vs. Predicted",
+        xlab = "Actual", ylab = "Predicted")
+  abline(lm(predictions ~ actual), col = "blue")
+  if (has_player_names) {
+    max_pred_index <- which.max(predictions)
+    points(actual[max_pred_index], predictions[max_pred_index], col = max_color, pch = 19, cex = 1.5)
+    arrows(x0 = actual[max_pred_index] - 0.05 * max(actual), y0 = predictions[max_pred_index] - 0.05 * max(predictions),
+          x1 = actual[max_pred_index], y1 = predictions[max_pred_index], col = max_color)
+    player_max_pred <- player_names[max_pred_index]
+    mtext(player_max_pred, side = 3, line = 2, cex = 0.8, col = max_color)
+  }
+
+  par(op)
+  return(rmse_value)
+}
+
+```
+
+
+```{r}
+features <- names(df[,1:19])
+
+fit_gbm <- gbm(total_goals ~ ., 
+               data = train, 
+               distribution = "gaussian", 
+               n.trees = 950, 
+               interaction.depth = 5, 
+               shrinkage = 0.01,
+               cv.folds = 10,
+               n.minobsinnode = 8)
+
+summary(fit_gbm)
+
+```
+
+```{r}
+predictions <- predict(fit_gbm, test[, features], n.trees = 950)
+rmse(predictions, test$total_goals)
+mae(test$total_goals, predictions)
+predictedGoals <- round(predictions)
+levels_in_data <- levels(factor(df$total_goals))
+predictedGoals <- factor(predictedGoals, levels = levels_in_data)
+test$total_goals <- factor(test$total_goals, levels = levels_in_data)
+```
+
+```{r}
+confusionMatrix(predictedGoals, test$total_goals)
+
+```
+
+
+```{r}
+test$PredictedGoals <- round(predict(fit_gbm, test[, features], n.trees = 950))
+top_scorer_index <- which.max(test$PredictedGoals)
+top_scorer <- test[top_scorer_index, c("player", "PredictedGoals")]
+top_scorer_a <- test[which.max(test$total_goals), c("player", "total_goals")]
+
+print(paste("The Predicted Goal scorer is", top_scorer, "and the actual top goal scores is", top_scorer_a))
+```
+
+
+```{r}
+data$PredictedGoals <- round(predict(fit_gbm, data[, features], n.trees = 950))
+top_scorer_indices <- order(data$PredictedGoals, decreasing = TRUE)[1:5]
+
+top_scorers <- data[top_scorer_indices, c("player", "PredictedGoals")]
+
+top_scorer_actual_indices <- order(data$total_goals, decreasing = TRUE)[1:5]
+
+top_scorers_actual <- data[top_scorer_actual_indices, c("player", "total_goals")]
+
+print(paste("The Predicted Top 5 Goal Scorers are:"))
+print(top_scorers)
+print(paste("The Actual Top 5 Goal Scorers are:"))
+print(top_scorers_actual)
+```
+
+
+```{r}
+random_index <- sample(1:nrow(data), 1)
+random_row <- data[random_index, c("player", "PredictedGoals", "total_goals")]
+
+cat("The Predicted Goal scorer is", random_row$player, 
+    "with Predicted Goals:", random_row$PredictedGoals,
+    "and the actual top goal scores is", random_row$total_goals, "\n")
+
+```
+
+
+```{r}
+serie_test <- read_csv('Serie_A.csv')
+serie_test <- serie_test %>%
+  rename(goal_per_game = Goals_x, total_goals = Goals_y)
+serie_test <- clean_names(serie_test)
+serie_test$PredictedGoals <- round(predict(fit_gbm, serie_test[, features]))
+top_serie_index <- which.max(serie_test$PredictedGoals)
+top_serie <- serie_test[top_serie_index, c("player", "PredictedGoals")]
+top_serie_a <- serie_test[which.max(serie_test$total_goals), c("player", "total_goals")]
+
+print(paste("The Predicted Goal scorer is", top_serie, "and the actual top goal scores is", top_serie_a))
+```
+
+```{r}
+rmse(serie_test$PredictedGoals, serie_test$total_goals, serie_test$player)
+```
+```{r}
+predictedGoals <- serie_test$PredictedGoals
+levels_in_data <- levels(factor(serie_test$total_goals))
+predictedGoals <- factor(predictedGoals, levels = levels_in_data)
+t <- factor(serie_test$total_goals, levels = levels_in_data)
+confusionMatrix(predictedGoals, t)
+```
+ 
+
+
+```{r}
+top_scorer_indices2 <- order(serie_test$PredictedGoals, decreasing = TRUE)[1:5]
+
+top_scorers2 <- serie_test[top_scorer_indices2, c("player", "PredictedGoals")]
+
+top_scorer_actual_indices2 <- order(serie_test$total_goals, decreasing = TRUE)[1:5]
+
+top_scorers_actual2 <- serie_test[top_scorer_actual_indices2, c("player", "total_goals")]
+
+print(paste("The Predicted Top 5 Goal Scorers are:"))
+print(top_scorers2)
+print(paste("The Actual Top 5 Goal Scorers are:"))
+print(top_scorers_actual2)
+```
+

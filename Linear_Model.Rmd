@@ -1,0 +1,259 @@
+---
+title: "Linear Regression"
+author: "Oluwasegun Adegoke"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(janitor)
+library(caTools)
+library(knitr)
+library(Metrics)
+library(caret)
+```
+
+```{r}
+data <- read.csv('combined_file.csv')
+data <- data %>%
+  rename(goal_per_game = Goals_x, total_goals = Goals_y)
+data <- data[,-28]
+data <- clean_names(data)
+```
+
+
+```{r}
+str(data)
+```
+```{r}
+names(data)
+```
+
+```{r}
+df <- data[, 6:27]
+set.seed(11)
+split <- sample.split(df$total_goals, SplitRatio = 0.80)
+train = subset(df, split == TRUE)
+test = subset(data, split == FALSE)
+```
+
+
+```{r}
+rmse <- function(predictions, actual, player_names = NULL, logflag = FALSE, max_color = "red") {
+  has_player_names <- !is.null(player_names)
+  if (logflag) {
+    predictions <- exp(predictions)
+    actual <- exp(actual)
+  }
+  rmse_value <- sqrt(mean((predictions - actual)^2))
+  cat(paste("Root Mean Squared Error (RMSE): ", round(rmse_value, 2), "\n"))
+
+  op <- par(mar = c(5.1, 4.1, 6, 2))  # Increase top margin
+  plot(as.numeric(actual), as.numeric(predictions), main = "Actual vs. Predicted",
+        xlab = "Actual", ylab = "Predicted")
+  abline(lm(predictions ~ actual), col = "blue")
+  if (has_player_names) {
+    max_pred_index <- which.max(predictions)
+    points(actual[max_pred_index], predictions[max_pred_index], col = max_color, pch = 19, cex = 1.5)
+    arrows(x0 = actual[max_pred_index] - 0.05 * max(actual), y0 = predictions[max_pred_index] - 0.05 * max(predictions),
+          x1 = actual[max_pred_index], y1 = predictions[max_pred_index], col = max_color)
+    player_max_pred <- player_names[max_pred_index]
+    mtext(player_max_pred, side = 3, line = 2, cex = 0.8, col = max_color)
+  }
+
+  par(op)
+  return(rmse_value)
+}
+
+```
+
+```{r}
+model <- lm(total_goals ~ ., data = train)
+summary(model)
+
+```
+
+
+```{r}
+predictions <- predict(model, test[,6:26])
+mae(predictions, test$total_goals)
+rmse(predictions, test$total_goals, test$player)
+```
+
+```{r}
+mse <- function(model, x, y, logflag = FALSE){
+  yhat = predict.lm(model, x)
+  if (logflag) {
+    yhat = exp(yhat)
+  }
+  mse = mean((yhat - y)^2)
+  return(mse)
+}
+
+mse(model, test[, 6:26], test[,27])
+```
+
+```{r}
+model2 <- lm(total_goals ~ .*., data = train)
+predictions2 <- predict(model2, test[,6:26])
+```
+
+```{r}
+summary(model2)
+```
+
+
+```{r}
+mae(predictions2, test$total_goals)
+rmse(predictions2, test$total_goals, test$player)
+```
+
+```{r}
+pvals <- summary(model2)$coef[-1, 4]
+cf <- names(pvals[pvals <= 0.1])
+uc <- unique(unlist(strsplit(cf, ":")))
+model2.1 <- lm(total_goals ~ .*., data = train[, c("total_goals", uc)])
+predictions2.1 <- predict(model2.1, test[,uc])
+mae(predictions2.1, test$total_goals)
+rmse(predictions2.1, test$total_goals, test$player)
+```
+
+```{r}
+pred <- predict(model2.1, newdata = test[,uc])
+predic <- round(pred)
+levels_in_data <- levels(factor(df$total_goals))
+predic <- factor(predic, levels = levels_in_data)
+tes <- factor(test$total_goals, levels = levels_in_data)
+confusionMatrix(predic, tes)
+```
+
+
+```{r}
+summary(model2.1)
+```
+
+
+```{r}
+maxs <- apply(df[,1:21], 2, max)
+mins <- apply(df[,1:21], 2, min)
+
+scaled.data <- as.data.frame(scale(df[,1:21],center = mins, scale = maxs - mins))
+total_goals = df$total_goals
+dt = cbind(scaled.data,total_goals)
+train2 = subset(dt, split == TRUE)
+test2 = subset(dt, split == FALSE)
+```
+
+```{r}
+head(df, 10)
+```
+
+
+
+
+```{r}
+model3 <- lm(total_goals~.*., data = train2)
+predictions3 <- predict(model3, test2[,1:21])
+rmse(predictions3, test2$total_goals, test$player)
+mse(model3, test2[,1:21], test2[,22])
+```
+
+```{r}
+pvals2 <- summary(model2)$coef[-1, 4]
+cf2 <- names(pvals[pvals <= 0.1])
+uc2 <- unique(unlist(strsplit(cf2, ":")))
+model3.1 <- lm(total_goals ~ .*., data = train[, c("total_goals", uc2)])
+predictions3.1 <- predict(model3.1, test[,uc2])
+mse(model3.1, test[, uc2], test[,22])
+rmse(predictions3.1, test$total_goals, test$player)
+```
+
+
+```{r}
+data$PredictedGoals <- round(predict(model2.1, data[,uc2]))
+top_scorer_index <- which.max(data$PredictedGoals)
+top_scorer <- data[top_scorer_index, c("player", "PredictedGoals")]
+top_scorer_a <- data[which.max(data$total_goals), c("player", "total_goals")]
+
+print(paste("The Predicted Goal scorer is", top_scorer, "and the actual top goal scores is", top_scorer_a))
+rmse(data$PredictedGoals, data$total_goals, data$player)
+```
+
+```{r}
+serie_test <- read_csv('Serie_A.csv')
+serie_test <- serie_test %>%
+  rename(goal_per_game = Goals_x, total_goals = Goals_y)
+serie_test <- clean_names(serie_test)
+serie_test$PredictedGoals <- round(predict(model2.1, serie_test[, uc]))
+top_serie_index <- which.max(serie_test$PredictedGoals)
+top_serie <- serie_test[top_serie_index, c("player", "PredictedGoals")]
+top_serie_a <- serie_test[which.max(serie_test$total_goals), c("player", "total_goals")]
+
+print(paste("The Predicted Goal scorer is", top_serie, "and the actual top goal scores is", top_serie_a))
+```
+
+
+```{r}
+rmse(serie_test$PredictedGoals, serie_test$total_goals, serie_test$player)
+```
+
+```{r}
+random_index <- sample(1:nrow(data), 1)
+random_row <- data[random_index, c("player", "PredictedGoals", "total_goals")]
+
+cat("The Predicted Goal scorer is", random_row$player, 
+    "with Predicted Goals:", random_row$PredictedGoals,
+    "and the actual goal scored is", random_row$total_goals, "\n")
+
+```
+
+```{r}
+
+top_scorer_indices <- order(data$PredictedGoals, decreasing = TRUE)[1:5]
+
+top_scorers <- data[top_scorer_indices, c("player", "PredictedGoals")]
+
+top_scorer_actual_indices <- order(data$total_goals, decreasing = TRUE)[1:5]
+
+top_scorers_actual <- data[top_scorer_actual_indices, c("player", "total_goals")]
+
+print(paste("The Predicted Top 5 Goal Scorers are:"))
+print(top_scorers)
+print(paste("The Actual Top 5 Goal Scorers are:"))
+print(top_scorers_actual)
+```
+
+
+
+
+```{r}
+predictedGoals <- serie_test$PredictedGoals
+levels_in_data <- levels(factor(serie_test$total_goals))
+predictedGoals <- factor(predictedGoals, levels = levels_in_data)
+t <- factor(serie_test$total_goals, levels = levels_in_data)
+confusionMatrix(predictedGoals, t)
+```
+
+```{r}
+top_scorer_indices2 <- order(serie_test$PredictedGoals, decreasing = TRUE)[1:5]
+
+top_scorers2 <- serie_test[top_scorer_indices2, c("player", "PredictedGoals")]
+
+top_scorer_actual_indices2 <- order(serie_test$total_goals, decreasing = TRUE)[1:5]
+
+top_scorers_actual2 <- serie_test[top_scorer_actual_indices2, c("player", "total_goals")]
+
+print(paste("The Predicted Top 5 Goal Scorers are:"))
+print(top_scorers2)
+print(paste("The Actual Top 5 Goal Scorers are:"))
+print(top_scorers_actual2)
+```
+
+
+
+
+
